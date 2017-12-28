@@ -8,13 +8,18 @@ script = None
 def startAnimation():
 	global script
 	script = animator.TwinkleScript()
-	Animator(script)
+	animator.Animator(script).run()
 
 
 @app.route("/hue/<hue>")
 def setHue(hue):
 	script.update( float(hue) )
-	return hue
+	return str(hue)
+
+@app.route("/brightness/<brightness>")
+def setBrightness(brightness):
+	script.setBrightness( float(brightness) )
+	return str(brightness)
 
 # @app.route("/hue")
 # def getHue():

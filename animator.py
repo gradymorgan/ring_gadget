@@ -41,27 +41,52 @@ class DefaultScript():
 
 
 class TwinkleScript():
+	@staticmethod
+	def interpColors(fromC, toC, percent):
+		mid = (
+			fromC[0] + (toC[0]-fromC[0])*percent,
+			fromC[1] + (toC[1]-fromC[1])*percent,
+			fromC[2] + (toC[2]-fromC[2])*percent
+			)
+		return mid
+
+	@staticmethod
+	def randomSaturation():
+		(f,t) = (0.7,1)
+		r = random.gauss(t, (t - f)/3.0)
+		return max(0,min(1-abs(t-r), 1))
+
+	@staticmethod
+	def randomBrightness(average):
+		return max(0,min(random.gauss(average,.1), 1))
+
+
 	def __init__(self, hue=60):
 		self.hue = hue
+		self.brightness = .4
+
+		self.STEPS = 20
+		self.current_step = 0
+		
+		self.current_pixels = [(0,0,0)]*16
+		self.target_pixels_hsv = [(0,0,self.brightness)]*16
 
 	def update(self, value):
 		self.hue = value
 
+	def setBrightness(self, value):
+		self.brightness = value
+		
 	def refresh(self):
-		return [fromHSV(self.hue/360.0, random.uniform(0.9,1), .4) for i in range(0,16)]
+		self.current_step = (self.current_step + 1) % self.STEPS
 
+		if self.current_step % self.STEPS == 0:
+			self.current_pixels = self.target_pixels_hsv
+			self.target_pixels_hsv = [(self.hue/360.0, TwinkleScript.randomSaturation(), TwinkleScript.randomBrightness(self.brightness)) for i in range(0,16)]
 
-class NotRandomScript():
-	def __init__(self, hue=60):
-		self.hue = hue
+		pixels = [TwinkleScript.interpColors( self.current_pixels[i], self.target_pixels_hsv[i], self.current_step / float(self.STEPS)) for i in range(0,16)]
+		return [fromHSV(pix[0], pix[1], pix[2]) for pix in pixels]
 
-	def update(self, value):
-		self.hue = value
-
-	def refresh(self):
-		while True:
-			pixels = [fromHSV(self.hue/360.0, random.uniform(0.9,1), .4) for i in range(0,16)]
-			yield pixels
 
 
 
@@ -83,7 +108,7 @@ class Animator():
 				self.strip.setPixelColor(i, pixels[i])
 
 			self.strip.show()
-			time.sleep(20.0/1000.0)
+			time.sleep(100.0/1000.0)
 
 	def run(self):
 		thread = threading.Thread(target=self.animate, args=())
