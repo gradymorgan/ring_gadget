@@ -5,6 +5,8 @@ import colorsys
 
 from neopixel import *
 
+import paho.mqtt.client as mqtt
+
 def _initNeoPixels():
 	# LED strip configuration:
 	LED_COUNT      = 16      # Number of LED pixels.
@@ -29,6 +31,57 @@ def fromHSV(hue, saturation, value):
 	return Color(r,g,b)
 
 
+class mqtt_connection:
+	def __init__(self, host, port, topics = []):
+		self.host = host
+		self.port = port
+
+		self.client = None
+		self.current_subscriptions = topics
+
+		self.on_update = None
+
+	def subscribe(self, topics):
+		if not self.client:
+			return
+
+		for topic in self.current_subscriptions:
+			self.client.unsubscribe(topic)
+
+		for topic in topics:
+			self.client.subscribe(message)
+
+		self.current_subscriptions = topics
+
+	# The callback for when the client receives a CONNACK response from the server.
+	def on_connect(self, client, userdata, flags, rc):
+	    print("Connected with result code "+str(rc))
+
+	    # Subscribing in on_connect() means that if we lose the connection and
+	    # reconnect then subscriptions will be renewed.
+	    for topic in self.current_subscriptions:
+			self.client.subscribe(topic)
+
+	# The callback for when a PUBLISH message is received from the server.
+	def on_message(self, client, userdata, msg):
+	    print(msg.topic+" "+str(msg.payload))
+
+	    if self.on_update:
+	    	self.on_update(msg.topic, str(msg.payload))
+
+	def start(self):
+		client = mqtt.Client("visuals")
+		client.on_connect = self.on_connect
+		client.on_message = self.on_message
+
+		client.connect(self.host, self.port)
+
+		self.client = client
+
+		client.start_loop()
+
+
+
 class DefaultScript():
 	def __init__(self):
 		pass
@@ -38,6 +91,36 @@ class DefaultScript():
 
 	def refresh(self):
 		return [Color(0,0,255)] * 16
+
+class WaterBar():
+	def __init__(self):
+		self.hue = 189.0
+		self.max = 12.0
+		self.value = 0
+
+	def update(self, value):
+		self.value = value
+
+	def refresh(self):
+		lit_pixels = int(self.value/self.max*16)
+		c = fromHSV(self.hue, 100, self.value/self.max)
+		
+		return [c]*lit_pixels + [Color(0,0,0)]*(16-lit_pixles)
+
+
+
+
+strip = _initNeoPixels()
+mqtt = mqtt_connection('192.168.14.101', '1083', 'home_assistant/sensor/water_flow/value')
+mqtt.start()
+
+script = WaterBar()
+def ou(topic, value):
+	script.update(value)
+
+mqtt.on_update = ou
+
+Animator(script).run()
 
 
 class TwinkleScript():
