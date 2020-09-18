@@ -2,6 +2,7 @@ import time
 import random
 import threading
 import colorsys
+import math
 
 from neopixel import *
 
@@ -49,36 +50,38 @@ class mqtt_connection:
 			self.client.unsubscribe(topic)
 
 		for topic in topics:
-			self.client.subscribe(message)
+			self.client.subscribe(topic)
 
 		self.current_subscriptions = topics
 
 	# The callback for when the client receives a CONNACK response from the server.
 	def on_connect(self, client, userdata, flags, rc):
-	    print("Connected with result code "+str(rc))
+		print("Connected with result code "+str(rc))
 
-	    # Subscribing in on_connect() means that if we lose the connection and
-	    # reconnect then subscriptions will be renewed.
-	    for topic in self.current_subscriptions:
+		# Subscribing in on_connect() means that if we lose the connection and
+		# reconnect then subscriptions will be renewed.
+		for topic in self.current_subscriptions:
+			print(topic)
 			self.client.subscribe(topic)
 
 	# The callback for when a PUBLISH message is received from the server.
 	def on_message(self, client, userdata, msg):
-	    print(msg.topic+" "+str(msg.payload))
+		print(msg.topic, str(msg.payload), self.on_update)
 
-	    if self.on_update:
-	    	self.on_update(msg.topic, str(msg.payload))
+		if self.on_update:
+			self.on_update(float(msg.payload), msg.topic)
 
 	def start(self):
 		client = mqtt.Client("visuals")
 		client.on_connect = self.on_connect
 		client.on_message = self.on_message
 
+		client.username_pw_set('mqtt', '')
 		client.connect(self.host, self.port)
 
 		self.client = client
 
-		client.start_loop()
+		client.loop_start()
 
 
 
@@ -95,33 +98,18 @@ class DefaultScript():
 class WaterBar():
 	def __init__(self):
 		self.hue = 189.0
-		self.max = 12.0
-		self.value = 0
+		self.max = 200.0
+		self.value = 6.0
 
 	def update(self, value):
 		self.value = value
+		print(self.value)
 
 	def refresh(self):
-		lit_pixels = int(self.value/self.max*16)
-		c = fromHSV(self.hue, 100, self.value/self.max)
+		lit_pixels = math.ceil(self.value/self.max*16)
+		c = fromHSV(self.hue/360.0, 1.0, self.value/self.max)
 		
-		return [c]*lit_pixels + [Color(0,0,0)]*(16-lit_pixles)
-
-
-
-
-strip = _initNeoPixels()
-mqtt = mqtt_connection('192.168.14.101', '1083', 'home_assistant/sensor/water_flow/value')
-mqtt.start()
-
-script = WaterBar()
-def ou(topic, value):
-	script.update(value)
-
-mqtt.on_update = ou
-
-Animator(script).run()
-
+		return [c]*lit_pixels + [Color(0,0,0)]*(16-lit_pixels)
 
 class TwinkleScript():
 	@staticmethod
@@ -148,11 +136,8 @@ class TwinkleScript():
 		self.hue = hue
 		self.brightness = .4
 
-		self.STEPS = 20
-		self.current_step = 0
+		self.STEPS = 10
 		
-		self.current_pixels = [(0,0,0)]*16
-		self.target_pixels_hsv = [(0,0,self.brightness)]*16
 
 	def update(self, value):
 		self.hue = value
@@ -161,14 +146,15 @@ class TwinkleScript():
 		self.brightness = value
 		
 	def refresh(self):
-		self.current_step = (self.current_step + 1) % self.STEPS
+		target_pixels_hsv = [(0,0,self.brightness)]*16
 
-		if self.current_step % self.STEPS == 0:
-			self.current_pixels = self.target_pixels_hsv
-			self.target_pixels_hsv = [(self.hue/360.0, TwinkleScript.randomSaturation(), TwinkleScript.randomBrightness(self.brightness)) for i in range(0,16)]
+		while True:
+			current_pixels = target_pixels_hsv
+			target_pixels_hsv = [(self.hue/360.0, TwinkleScript.randomSaturation(), TwinkleScript.randomBrightness(self.brightness)) for i in range(0,16)]
 
-		pixels = [TwinkleScript.interpColors( self.current_pixels[i], self.target_pixels_hsv[i], self.current_step / float(self.STEPS)) for i in range(0,16)]
-		return [fromHSV(pix[0], pix[1], pix[2]) for pix in pixels]
+			for step in range(0, self.STEPS):			
+				pixels = [TwinkleScript.interpColors( current_pixels[i], target_pixels_hsv[i], step / float(self.STEPS)) for i in range(0,16)]
+				yield [fromHSV(pix[0], pix[1], pix[2]) for pix in pixels]
 
 
 
@@ -182,7 +168,7 @@ class Animator():
 		self.script = script
 
 	def animate(self):
-		print "Starting Animation"
+		print("Starting Animation")
 
 		while True:
 			pixels = self.script.refresh()
@@ -197,4 +183,23 @@ class Animator():
 		thread = threading.Thread(target=self.animate, args=())
 		thread.daemon = True                            # Daemonize thread
 		thread.start()                                  # Start the execution
+
+
+
+
+mqtt_client = mqtt_connection('192.168.14.101', 1883, ['homeassistant/sensor/water_usage_today/state'])
+mqtt_client.start()
+
+strip = _initNeoPixels()
+script = WaterBar()
+def ou(value, topic):
+	script.update(value)
+
+mqtt_client.on_update = ou
+
+Animator(script).run()
+
+while True:
+	time.sleep(15)
+
 
