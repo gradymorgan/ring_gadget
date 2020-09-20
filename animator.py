@@ -95,21 +95,55 @@ class DefaultScript():
 	def refresh(self):
 		return [Color(0,0,255)] * 16
 
-class WaterBar():
-	def __init__(self):
-		self.hue = 189.0
-		self.max = 200.0
-		self.value = 6.0
+class SingleBar():
+	def __init__(self, maxValue, hue=189.0):
+		self.hue = hue
+		self.max = maxValue
+		self.value = 0.0
 
-	def update(self, value):
+	def update(self, value, key):
+		print ("update", value)
 		self.value = value
-		print(self.value)
 
 	def refresh(self):
 		lit_pixels = math.ceil(self.value/self.max*16)
 		c = fromHSV(self.hue/360.0, 1.0, self.value/self.max)
 		
-		return [c]*lit_pixels + [Color(0,0,0)]*(16-lit_pixels)
+		l = [c]*lit_pixels + [Color(0,0,0)]*(16-lit_pixels)
+		# print(self.value,self.max,lit_pixels, l)
+
+		return l
+
+class DoubleBar():
+	def __init__(self, hue1, maxValue1, topic1, hue2, maxValue2, topic2):
+		self.hue1 = hue1
+		self.hue2 = hue2
+		self.max1 = maxValue1
+		self.max2 = maxValue2
+		self.value1 = 0.0
+		self.value2 = 0.0
+		self.topic1 = topic1
+		self.topic2 = topic2
+
+	def update(self, value, key):
+		if key == self.topic1:
+			self.value1 = value
+		if key == self.topic2:
+			self.value2 = value
+
+	def refresh(self):
+		lit_pixels_1 = math.ceil(self.value1/self.max1*8)
+		c_1 = fromHSV(self.hue1/360.0, 1.0, self.value1/self.max1)
+		
+		lit_pixels_2 = math.ceil(self.value2/self.max2*8)
+		c_2 = fromHSV(self.hue2/360.0, 1.0, self.value2/self.max2)
+		
+		# print (lit_pixels_1, lit_pixels_2)
+
+		l = [c_1]*lit_pixels_1 + [Color(0,0,0)]*(8-lit_pixels_1) + [Color(0,0,0)]*(8-lit_pixels_2) + [c_2]*lit_pixels_2
+		# print(l)
+		return l
+
 
 class TwinkleScript():
 	@staticmethod
@@ -185,21 +219,28 @@ class Animator():
 		thread.start()                                  # Start the execution
 
 
-
-
 mqtt_client = mqtt_connection('192.168.14.101', 1883, ['homeassistant/sensor/water_usage_today/state'])
 mqtt_client.start()
 
-strip = _initNeoPixels()
-script = WaterBar()
-def ou(value, topic):
-	script.update(value)
+animator = Animator(DefaultScript())
+animator.run()
 
-mqtt_client.on_update = ou
+displays = [
+	(['homeassistant/sensor/water_usage_today/state','homeassistant/sensor/energy_usage_today/state'], DoubleBar(217, 200, 'homeassistant/sensor/water_usage_today/state', 60, 20, 'homeassistant/sensor/energy_usage_today/state'), lambda v,k,s : s.update(v,k)),
+	(['homeassistant/sensor/water_usage_today/state'], SingleBar(200, 217), lambda v,k,s : s.update(v,k) ),
+	(['homeassistant/sensor/energy_usage_today/state'], SingleBar(20, 60), lambda v,k,s : s.update(v,k) )
+]
 
-Animator(script).run()
+def setDisplay(display):
+	script = display[1]
+	animator.changeScript(script)
+	mqtt_client.on_update = lambda v,k : display[2](v,k,script)
+	mqtt_client.subscribe(display[0])
 
+i = 0
 while True:
+	i += 1
+	setDisplay(displays[i%3])
 	time.sleep(15)
 
 
